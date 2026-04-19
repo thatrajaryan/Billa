@@ -22,6 +22,7 @@ A Flask-based chat assistant application with a ChatGPT-like interface.
 ├── assistant.md             # Session to task mapping
 ├── run.py                   # Entry point
 └── requirements.txt         # Dependencies
+└── SOUL.md                  # Soul of the assistant
 ```
 
 ## How It Works
