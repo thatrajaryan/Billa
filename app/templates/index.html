@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <button id="new-chat-btn" class="new-chat-btn">+ New Chat</button>
+            </div>
+            <div class="sessions-list" id="sessions-list">
+                <!-- Sessions will be loaded here -->
+            </div>
+            <div class="sidebar-footer">
+                <button id="files-btn" class="files-btn">📁 Files</button>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-container">
+            <header class="chat-header">
+                <h1 id="session-title">Billa Home</h1>
+            </header>
+
+            <div class="chat-messages" id="chat-messages">
+                <!-- Messages will be added here -->
+                <div class="welcome-message" id="welcome-message">
+                    <h2>Welcome to Billa Home</h2>
+                    <p>Send a message and I'll automatically route you to the right conversation or create a new one.</p>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <form id="chat-form" class="chat-form">
+                    <textarea
+                        id="message-input"
+                        placeholder="Message the assistant..."
+                        rows="1"
+                        autocomplete="off"
+                    ></textarea>
+                    <button type="submit" id="send-btn" class="send-btn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- Conversation Selection Modal -->
+    <div id="conversation-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Select or Create Conversation</h2>
+                <button id="close-modal" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <h3>Continue Existing Conversation</h3>
+                    <div id="existing-conversations" class="conversation-list">
+                        <!-- Existing conversations will be loaded here -->
+                    </div>
+                </div>
+                <div class="modal-section">
+                    <h3>Start New Conversation</h3>
+                    <div id="task-options" class="task-options">
+                        <!-- Task options will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal" style="display: none;">
+        <div class="modal-content delete-modal">
+            <div class="modal-header">
+                <h2>Delete Conversation</h2>
+                <button id="close-delete-modal" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="delete-warning">Are you sure you want to delete "<span id="delete-session-name"></span>"?</p>
+                <p class="delete-details">This will remove the conversation entry and delete the associated task file. This action cannot be undone.</p>
+                <div class="delete-actions">
+                    <button id="confirm-delete-btn" class="delete-btn">Delete</button>
+                    <button id="cancel-delete-btn" class="cancel-btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Files Modal -->
+    <div id="files-modal" class="modal" style="display: none;">
+        <div class="modal-content files-modal">
+            <div class="modal-header">
+                <h2>Created Files</h2>
+                <button id="close-files-modal" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="files-list" class="files-list">
+                    <!-- Files will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

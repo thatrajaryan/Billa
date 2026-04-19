@@ -1,0 +1,6 @@
+.env
+.qwen/
+venv/
+files/*
+tasks/*
+assistant.md
