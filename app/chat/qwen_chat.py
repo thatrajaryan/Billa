@@ -438,3 +438,34 @@ class QwenChat(Chat):
         self._kill_current_process()
         self.current_session_id = None
         self.current_task_file = None
+
+    async def generate_title(self, prompt: str) -> str:
+        """Generate a concise title (3-5 words) for a conversation based on the initial prompt."""
+        system_prompt = "You are a helpful assistant that summarizes user prompts into very concise, 3-5 word titles. Return only the title text, nothing else. Do not use quotes."
+        user_message = f"Summarize this prompt into a 3-5 word title: {prompt}"
+        
+        try:
+            # Run Qwen CLI once for the title
+            cmd = ["qwen", "-y", "--system-prompt", system_prompt, "-p", user_message, "-o", "text"]
+            
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=str(self.project_root)
+                )
+            )
+            
+            if result.returncode == 0:
+                title = result.stdout.strip().strip('"').strip("'").rstrip('.')
+                if not title:
+                    title = result.stderr.strip().strip('"').strip("'").rstrip('.')
+                return title if title else prompt[:30] + "..."
+            return prompt[:30] + "..."
+        except Exception as e:
+            print(f"[QwenChat] Failed to generate title: {e}")
+            return prompt[:30] + "..."

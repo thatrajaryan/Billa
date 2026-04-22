@@ -250,3 +250,38 @@ class OllamaChat(Chat):
     def reset_session(self):
         """Ollama sessions are stateless at the API level (history passed in messages)."""
         pass
+
+    async def generate_title(self, prompt: str) -> str:
+        """Generate a concise title (3-5 words) for a conversation based on the initial prompt."""
+        system_prompt = "You are a helpful assistant that summarizes user prompts into very concise, 3-5 word titles. Return only the title text, nothing else. Do not use quotes."
+        user_message = f"Summarize this prompt into a 3-5 word title: {prompt}"
+        
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            "stream": False
+        }
+
+        loop = asyncio.get_event_loop()
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=300
+                )
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            if "message" in data and "content" in data["message"]:
+                title = data["message"]["content"].strip().strip('"').strip("'").rstrip('.')
+                return title
+            return prompt[:30] + "..."
+        except Exception as e:
+            print(f"[OllamaChat] Failed to generate title: {e}")
+            return prompt[:30] + "..."

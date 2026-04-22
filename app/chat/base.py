@@ -34,3 +34,16 @@ class Chat(ABC):
             Chunks of the assistant's response
         """
         pass
+
+    @abstractmethod
+    async def generate_title(self, prompt: str) -> str:
+        """
+        Generate a concise title (3-5 words) for a conversation based on the initial prompt.
+
+        Args:
+            prompt: The user's initial input message
+
+        Returns:
+            A short, descriptive title
+        """
+        pass

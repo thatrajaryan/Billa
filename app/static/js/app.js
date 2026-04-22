@@ -6,6 +6,7 @@ let sessions = [];
 let tasks = [];
 let pendingDeleteSession = null;
 let isFirstMessage = true;
+let currentAbortController = null;
 
 // DOM Elements
 const chatForm = document.getElementById("chat-form");
@@ -289,6 +290,10 @@ function renderTaskOptions() {
 async function continueConversation(sessionId) {
     currentSessionId = sessionId;
     
+    // Clear chat and show welcome before loading context
+    chatMessages.innerHTML = "";
+    showWelcomeMessage();
+    
     // Find the session object
     const session = sessions.find(s => s.session_id === sessionId);
     
@@ -298,12 +303,7 @@ async function continueConversation(sessionId) {
         const data = await response.json();
         if (data.context) {
             currentTaskFile = data.context;
-            
-            // Show summary at the top of the chat
-            const taskInfo = extractTaskInfo(data.context);
-            if (taskInfo.summary) {
-                showSummaryMessage(taskInfo.summary, taskInfo.title);
-            }
+            showTaskContext(data.context);
         }
     } catch (error) {
         console.error("Failed to load task context:", error);
@@ -314,9 +314,6 @@ async function continueConversation(sessionId) {
         ? session.task_file.split('/').pop().replace('.md', '').replace(/-/g, ' ').replace(/_/g, ' ')
         : sessionId;
     sessionTitle.textContent = taskName.charAt(0).toUpperCase() + taskName.slice(1);
-    
-    chatMessages.innerHTML = "";
-    showWelcomeMessage();
 
     // Update active state
     highlightActiveSession();
@@ -334,17 +331,41 @@ function extractTaskInfo(taskContent) {
     return { title, summary };
 }
 
-function showSummaryMessage(summary, title) {
-    // Create a summary banner at the top of the chat
-    const summaryEl = document.createElement("div");
-    summaryEl.className = "summary-banner";
-    summaryEl.innerHTML = `
-        <div class="summary-header">📋 Conversation Summary: ${title}</div>
-        <div class="summary-content">${summary}</div>
+function showTaskContext(markdown) {
+    const headerEl = document.createElement("div");
+    headerEl.className = "task-context-header";
+    
+    // Extract title from first # heading
+    const titleMatch = markdown.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1] : "Task Context";
+    
+    // Remove the title from body if it's there
+    let bodyMarkdown = markdown;
+    if (titleMatch) {
+        bodyMarkdown = markdown.replace(titleMatch[0], "").trim();
+    }
+    
+    headerEl.innerHTML = `
+        <div class="task-context-label">Current Task Context</div>
+        <div class="task-context-title">${title}</div>
+        <div class="task-context-body" id="task-context-body">
+            ${formatMessage(bodyMarkdown)}
+        </div>
+        <div class="task-context-footer">
+            <button class="task-context-toggle" id="task-context-toggle">Collapse Context</button>
+        </div>
     `;
     
-    chatMessages.innerHTML = "";
-    chatMessages.appendChild(summaryEl);
+    chatMessages.prepend(headerEl);
+    
+    const toggleBtn = headerEl.querySelector("#task-context-toggle");
+    const bodyEl = headerEl.querySelector("#task-context-body");
+    
+    toggleBtn.addEventListener("click", () => {
+        const isCollapsed = bodyEl.style.display === "none";
+        bodyEl.style.display = isCollapsed ? "block" : "none";
+        toggleBtn.textContent = isCollapsed ? "Collapse Context" : "Show Task Context";
+    });
 }
 
 async function createNewConversationWithTask(task) {
@@ -611,7 +632,17 @@ async function handleSendMessage(e) {
     e.preventDefault();
 
     const message = messageInput.value.trim();
-    if (!message || isWaitingForResponse) return;
+    
+    // If already waiting for response, the button acts as a stop button
+    if (isWaitingForResponse) {
+        if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+        }
+        return;
+    }
+
+    if (!message) return;
 
     // If we're in Billa Home, try to detect matching conversation
     if (currentSessionId === "assistant") {
@@ -634,15 +665,33 @@ async function handleSendMessage(e) {
     messageInput.value = "";
     messageInput.style.height = "auto";
 
-    // Show typing indicator
+    // Show typing indicator and switch to stop button
     isWaitingForResponse = true;
-    sendBtn.disabled = true;
+    updateSendButtonState("stop");
     addTypingIndicator();
 
     try {
         // Use streaming response
         const response = await sendStreamingMessage(message);
         
+        // After first message in a non-assistant session, rename it
+        if (isFirstMessage && currentSessionId !== "assistant") {
+            try {
+                const renameResponse = await fetch(`/api/sessions/${currentSessionId}/rename`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt: message })
+                });
+                const renameData = await renameResponse.json();
+                if (renameData.success) {
+                    sessionTitle.textContent = renameData.new_title;
+                    loadSessions();
+                }
+            } catch (error) {
+                console.error("Failed to rename session:", error);
+            }
+        }
+
         // After receiving response, update task file with summary
         if (currentSessionId !== "assistant") {
             await updateTaskSummary(currentSessionId, message, response);
@@ -653,6 +702,7 @@ async function handleSendMessage(e) {
     } finally {
         removeTypingIndicator();
         isWaitingForResponse = false;
+        updateSendButtonState("send");
         sendBtn.disabled = false;
         isFirstMessage = false;
     }
@@ -683,12 +733,17 @@ async function routeToConversation(message, sessionId) {
     // Find the session object
     const session = sessions.find(s => s.session_id === sessionId);
     
+    // Clear chat and show welcome before loading context
+    chatMessages.innerHTML = "";
+    showWelcomeMessage();
+
     // Load task context for this session
     try {
         const response = await fetch(`/api/sessions/${sessionId}/task`);
         const data = await response.json();
         if (data.context) {
             currentTaskFile = data.context;
+            showTaskContext(data.context);
         }
     } catch (error) {
         console.error("Failed to load task context:", error);
@@ -699,9 +754,6 @@ async function routeToConversation(message, sessionId) {
         ? session.task_file.split('/').pop().replace('.md', '').replace(/-/g, ' ').replace(/_/g, ' ')
         : sessionId;
     sessionTitle.textContent = taskName.charAt(0).toUpperCase() + taskName.slice(1);
-    
-    chatMessages.innerHTML = "";
-    showWelcomeMessage();
 
     // Update active state
     highlightActiveSession();
@@ -712,7 +764,7 @@ async function routeToConversation(message, sessionId) {
     messageInput.style.height = "auto";
     
     isWaitingForResponse = true;
-    sendBtn.disabled = true;
+    updateSendButtonState("stop");
     addTypingIndicator();
 
     try {
@@ -723,6 +775,7 @@ async function routeToConversation(message, sessionId) {
     } finally {
         removeTypingIndicator();
         isWaitingForResponse = false;
+        updateSendButtonState("send");
         sendBtn.disabled = false;
     }
 }
@@ -732,6 +785,7 @@ async function createAndRouteToNewConversation(message) {
     const sessionId = "chat-" + Date.now();
     currentSessionId = sessionId;
     currentTaskFile = "tasks/default.md";
+    isFirstMessage = true;
 
     // Create session mapping with first message as title context
     try {
@@ -766,7 +820,7 @@ async function createAndRouteToNewConversation(message) {
     messageInput.style.height = "auto";
     
     isWaitingForResponse = true;
-    sendBtn.disabled = true;
+    updateSendButtonState("stop");
     addTypingIndicator();
 
     try {
@@ -777,11 +831,15 @@ async function createAndRouteToNewConversation(message) {
     } finally {
         removeTypingIndicator();
         isWaitingForResponse = false;
+        updateSendButtonState("send");
         sendBtn.disabled = false;
     }
 }
 
 async function sendStreamingMessage(message) {
+    currentAbortController = new AbortController();
+    const signal = currentAbortController.signal;
+
     const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: {
@@ -791,6 +849,7 @@ async function sendStreamingMessage(message) {
             message: message,
             session_id: currentSessionId,
         }),
+        signal: signal
     });
 
     if (!response.ok) {
@@ -828,15 +887,40 @@ async function sendStreamingMessage(message) {
             }
         }
     } catch (error) {
-        if (!fullMessage) {
+        if (error.name === 'AbortError') {
+             contentEl.innerHTML += `<br><span style="color: #f59e0b;">[Stream stopped by user]</span>`;
+        } else if (!fullMessage) {
             throw error;
+        } else {
+            contentEl.innerHTML += `<br><span style="color: #ef4444;">[Stream interrupted]</span>`;
         }
-        contentEl.innerHTML += `<br><span style="color: #ef4444;">[Stream interrupted]</span>`;
+    } finally {
+        currentAbortController = null;
     }
     
     return fullMessage;
 }
 
+async function updateSendButtonState(state) {
+    if (state === "stop") {
+        sendBtn.classList.add("stop-btn");
+        sendBtn.innerHTML = `
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="6" y="6" width="12" height="12"></rect>
+            </svg>
+        `;
+        sendBtn.disabled = false;
+    } else {
+        sendBtn.classList.remove("stop-btn");
+        sendBtn.innerHTML = `
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+        `;
+        // Send button disabled state depends on context
+    }
+}
 async function updateTaskSummary(sessionId, userMessage, assistantResponse) {
     // Generate a summary from the conversation
     const summaryText = assistantResponse.substring(0, 200) + 

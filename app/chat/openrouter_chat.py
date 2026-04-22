@@ -6,9 +6,11 @@ import requests
 from pathlib import Path
 from typing import Optional, AsyncGenerator, List, Dict
 from app.chat.base import Chat
+from app.chat.checkpoint_manager import CheckpointManager
 
 
 class OpenRouterChat(Chat):
+
     """Chat implementation using OpenRouter REST API."""
 
     def __init__(self, project_root: str = ".", assistant_file: Optional[str] = None):
@@ -29,7 +31,9 @@ class OpenRouterChat(Chat):
         if not self.model:
             raise ValueError("OPEN_ROUTER_MODEl (or MODEL) not found in environment or .env file")
 
+        self.checkpoint_manager = CheckpointManager(os.path.join(project_root, "checkpoints"))
         self._ensure_files_dir_exists()
+
 
     def _load_env(self):
         """Manually parse .env file if it exists and variables aren't already set."""
@@ -300,36 +304,76 @@ class OpenRouterChat(Chat):
         Send a message to OpenRouter and stream the response.
         If it's a research request, perform multi-stage agentic loop.
         """
-        if not self._is_research_request(message, context):
+        message_lower = message.lower().strip()
+        is_continue = message_lower in ["continue", "resume", "go on", "keep going", "..."]
+        checkpoint = self.checkpoint_manager.load_checkpoint(session_id)
+
+        if not self._is_research_request(message, context) and not (is_continue and checkpoint and checkpoint.get("type") == "research"):
             # Fallback to standard streaming
             async for chunk in self._standard_stream(message, session_id, context):
                 yield chunk
             return
 
-        # Start Research Loop
-        yield "### 🔍 Billa Research Protocol: Initiated\n\n"
+        # Start or Resume Research Loop
+        if is_continue and checkpoint and checkpoint.get("type") == "research":
+            yield "### 🔄 Resuming Billa Research Protocol\n\n"
+            stage = checkpoint.get("stage")
+            explore_results = checkpoint.get("explore_results", "")
+            roadmap = checkpoint.get("roadmap", [])
+            final_markdown = checkpoint.get("final_markdown", f"# Research: {checkpoint.get('original_message', message)}\n\n")
+            start_chapter = checkpoint.get("chapter_index", 0)
+        else:
+            yield "### 🔍 Billa Research Protocol: Initiated\n\n"
+            stage = "init"
+            explore_results = ""
+            roadmap = []
+            final_markdown = f"# Research: {message}\n\n"
+            start_chapter = 0
+            # Save initial checkpoint
+            self.checkpoint_manager.save_checkpoint(session_id, {
+                "type": "research",
+                "stage": "init",
+                "original_message": message,
+                "context": context
+            })
         
         try:
             # Stage 1: Explore
-            yield "1. **Exploring** the topic and gathering information... "
-            explore_results = await self._research_explore(message, context)
-            yield "✅ Done.\n"
+            if stage == "init":
+                yield "1. **Exploring** the topic and gathering information... "
+                explore_results = await self._research_explore(message, context)
+                stage = "explore_done"
+                self.checkpoint_manager.save_checkpoint(session_id, {
+                    "type": "research",
+                    "stage": "explore_done",
+                    "explore_results": explore_results,
+                    "original_message": message
+                })
+                yield "✅ Done.\n"
 
             # Stage 2: Roadmap
-            yield "2. **Creating a learning roadmap**... "
-            roadmap = await self._research_roadmap(explore_results)
-            yield f"✅ Created {len(roadmap)} chapters.\n\n"
-            
-            yield "#### Roadmap:\n"
-            for i, ch in enumerate(roadmap):
-                yield f"- Chapter {i+1}: {ch.get('title', 'Untitled')}\n"
-            yield "\n---\n\n"
+            if stage == "explore_done":
+                yield "2. **Creating a learning roadmap**... "
+                roadmap = await self._research_roadmap(explore_results)
+                stage = "roadmap_done"
+                self.checkpoint_manager.save_checkpoint(session_id, {
+                    "type": "research",
+                    "stage": "roadmap_done",
+                    "explore_results": explore_results,
+                    "roadmap": roadmap,
+                    "original_message": message
+                })
+                yield f"✅ Created {len(roadmap)} chapters.\n\n"
+                
+                yield "#### Roadmap:\n"
+                for i, ch in enumerate(roadmap):
+                    yield f"- Chapter {i+1}: {ch.get('title', 'Untitled')}\n"
+                yield "\n---\n\n"
+                final_markdown += f"## Research Findings (Initial)\n{explore_results}\n\n"
 
             # Stage 3: Chapters
-            final_markdown = f"# Research: {message}\n\n"
-            final_markdown += f"## Research Findings (Initial)\n{explore_results}\n\n"
-            
-            for i, chapter in enumerate(roadmap):
+            for i in range(start_chapter, len(roadmap)):
+                chapter = roadmap[i]
                 ch_title = chapter.get('title', f'Chapter {i+1}')
                 yield f"### 📝 Processing Chapter {i+1}: {ch_title}\n"
                 
@@ -349,18 +393,34 @@ class OpenRouterChat(Chat):
                 yield chapter_content
                 yield "\n---\n\n"
 
+                # Update checkpoint after each chapter
+                self.checkpoint_manager.save_checkpoint(session_id, {
+                    "type": "research",
+                    "stage": "chapter_done",
+                    "chapter_index": i + 1,
+                    "explore_results": explore_results,
+                    "roadmap": roadmap,
+                    "final_markdown": final_markdown,
+                    "original_message": message
+                })
+
             # Stage 4: Consolidation & Saving
             yield "4. **Finalizing and saving resource**... "
             filename = f"research_{session_id}_{int(asyncio.get_event_loop().time())}.md"
             file_path = self.files_dir / filename
             file_path.write_text(final_markdown)
-            yield f"✅ Saved as `{filename}`.\n\n"
             
+            # Clear checkpoint on success
+            self.checkpoint_manager.clear_checkpoint(session_id)
+            
+            yield f"✅ Saved as `{filename}`.\n\n"
             yield f"**Research Complete!** You can download the full resource from the 📁 Files button in the sidebar: `{filename}`"
 
         except Exception as e:
             yield f"\n\n❌ **Research Interrupted**: {str(e)}\n"
+            yield f"\n💡 **Tip**: Type \"continue\" to resume from the last successful stage.\n"
             print(f"[OpenRouterChat] Research Loop Error: {e}")
+
 
     async def _standard_stream(
         self,
@@ -368,7 +428,21 @@ class OpenRouterChat(Chat):
         session_id: str,
         context: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
-        """Original streaming logic."""
+        """Original streaming logic with checkpointing."""
+        message_lower = message.lower().strip()
+        is_continue = message_lower in ["continue", "resume", "go on", "keep going", "..."]
+        checkpoint = self.checkpoint_manager.load_checkpoint(session_id)
+
+        actual_message = message
+        if is_continue and checkpoint and checkpoint.get("type") == "standard":
+            partial_content = checkpoint.get("content", "")
+            actual_message = (
+                f"The previous response was interrupted. Here is what was generated so far:\n\n"
+                f"{partial_content}\n\n"
+                f"Please continue exactly from where it left off. Do not repeat the previous content."
+            )
+            yield f"[Resuming from checkpoint...]\n"
+
         system_prompt = ""
         if session_id == "assistant":
             system_prompt = self._get_assistant_summary()
@@ -379,7 +453,7 @@ class OpenRouterChat(Chat):
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message}
+                {"role": "user", "content": actual_message}
             ],
             "stream": True
         }
@@ -420,12 +494,47 @@ class OpenRouterChat(Chat):
                             print(f"[OpenRouterChat] Failed to decode JSON chunk: {content}")
 
             if full_response:
-                self._extract_and_save_files(full_response)
+                # If we were resuming, combine with previous content for file extraction
+                combined_response = full_response
+                if is_continue and checkpoint:
+                    combined_response = checkpoint.get("content", "") + full_response
+                
+                self._extract_and_save_files(combined_response)
+                # Clear checkpoint on success
+                self.checkpoint_manager.clear_checkpoint(session_id)
 
         except Exception as e:
             print(f"[OpenRouterChat] Stream error: {e}")
-            yield f"[Error: {e}]"
+            # Save checkpoint on error
+            combined_content = full_response
+            if is_continue and checkpoint:
+                combined_content = checkpoint.get("content", "") + full_response
+            
+            self.checkpoint_manager.save_checkpoint(session_id, {
+                "type": "standard",
+                "content": combined_content,
+                "original_message": message
+            })
+            
+            yield f"\n\n[Stream Interrupted: {e}]\n"
+            yield f"💡 **Tip**: Type \"continue\" to resume from where I left off."
 
-    def reset_session(self):
-        """Sessions in OpenRouter are handled by history, which is managed by the caller/Assistant."""
-        pass
+    def reset_session(self, session_id: str):
+        """Reset session and clear checkpoints."""
+        self.checkpoint_manager.clear_checkpoint(session_id)
+
+    async def generate_title(self, prompt: str) -> str:
+        """Generate a concise title (3-5 words) for a conversation based on the initial prompt."""
+        system_prompt = "You are a helpful assistant that summarizes user prompts into very concise, 3-5 word titles. Return only the title text, nothing else. Do not use quotes."
+        user_message = f"Summarize this prompt into a 3-5 word title: {prompt}"
+        
+        try:
+            title = await self._make_api_call(system_prompt, user_message)
+            # Remove quotes and trailing punctuation
+            title = title.strip().strip('"').strip("'").rstrip('.')
+            return title
+        except Exception as e:
+            print(f"[OpenRouterChat] Failed to generate title: {e}")
+            # Fallback to simple substring
+            return prompt[:30] + "..." if len(prompt) > 30 else prompt
+

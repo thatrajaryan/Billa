@@ -451,3 +451,88 @@ class Assistant:
             "task_deleted": task_deleted,
             "message": f"Session '{session_id}' deleted successfully"
         }
+
+    def rename_session(self, session_id: str, new_title: str) -> dict:
+        """
+        Rename a session's display title and its associated task file.
+
+        Args:
+            session_id: The session identifier
+            new_title: The new title for the session
+
+        Returns:
+            Dict with success status and details
+        """
+        if not self.assistant_file.exists():
+            raise ValueError("Assistant file not found")
+
+        content = self.assistant_file.read_text()
+        
+        # Find the session block
+        session_pattern = rf"(##\s+{re.escape(session_id)}\s*\n((?:-.*\n)*))"
+        match = re.search(session_pattern, content, re.MULTILINE)
+        
+        if not match:
+            raise ValueError(f"Session '{session_id}' not found")
+
+        full_block = match.group(1)
+        details = match.group(2)
+        
+        # 1. Extract and rename task file
+        task_match = re.search(r"Task:\s*(.+?\.md)", details)
+        if not task_match:
+             raise ValueError(f"No task file found for session '{session_id}'")
+             
+        old_task_file = Path(task_match.group(1).strip())
+        
+        # Create safe filename from new title
+        safe_filename = new_title.lower().strip().replace(" ", "-").replace("_", "-")
+        safe_filename = re.sub(r'[^a-z0-9\-]', '', safe_filename)
+        if not safe_filename:
+            safe_filename = "untitled-chat"
+            
+        new_task_filename = f"{safe_filename}.md"
+        new_task_file = self.tasks_dir / new_task_filename
+        
+        # Handle filename collisions
+        counter = 1
+        base_filename = safe_filename
+        while new_task_file.exists() and new_task_file != old_task_file:
+            new_task_filename = f"{base_filename}-{counter}.md"
+            new_task_file = self.tasks_dir / new_task_filename
+            counter += 1
+            
+        old_task_path = self.assistant_file.parent / old_task_file if not old_task_file.is_absolute() else old_task_file
+        new_task_path = self.tasks_dir / new_task_filename
+        
+        # Perform physical rename
+        if old_task_path.exists():
+            old_task_path.rename(new_task_path)
+            
+            # Update internal title if it's a markdown heading
+            task_content = new_task_path.read_text()
+            task_content = re.sub(r"^#\s+.*$", f"# {new_title}", task_content, count=1, flags=re.MULTILINE)
+            new_task_path.write_text(task_content)
+
+        # 2. Update assistant.md mapping
+        # Update Task path and Title
+        new_task_relative_path = os.path.relpath(new_task_path, self.assistant_file.parent)
+        
+        new_details = details
+        new_details = re.sub(r"Task:\s*(.+?\.md)", f"Task: {new_task_relative_path}", new_details)
+        
+        if "Title:" in new_details:
+            new_details = re.sub(r"Title:\s*(.*)", f"Title: {new_title}", new_details)
+        else:
+            new_details += f"- Title: {new_title}\n"
+            
+        updated_block = f"## {session_id}\n{new_details}"
+        updated_content = content.replace(full_block, updated_block)
+        self.assistant_file.write_text(updated_content)
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "new_title": new_title,
+            "new_task_file": str(new_task_relative_path)
+        }

@@ -3,4 +3,4 @@
 venv/
 files/*
 tasks/*
-assistant.md
+checkpoints/

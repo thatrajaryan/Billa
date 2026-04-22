@@ -219,6 +219,29 @@ def create_app(chat_impl: Chat | None = None):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/api/sessions/<session_id>/rename", methods=["POST"])
+    def rename_session(session_id):
+        """Rename a session based on a title or automatically from a prompt."""
+        data = request.get_json()
+        new_title = data.get("title")
+        prompt = data.get("prompt")
+
+        try:
+            if not new_title and prompt:
+                # Generate title from prompt
+                if hasattr(app.chat, 'generate_title'):
+                    new_title = _run_async(app.chat.generate_title(prompt))
+                else:
+                    new_title = prompt[:30] + "..."
+            
+            if not new_title:
+                return jsonify({"error": "Title or prompt is required"}), 400
+
+            result = app.assistant.rename_session(session_id, new_title)
+            return jsonify(result), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/api/files", methods=["GET"])
     def list_files():
         """List all available files for download."""
