@@ -4,7 +4,7 @@ import re
 import asyncio
 import requests
 from pathlib import Path
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, List, Dict
 from app.chat.base import Chat
 
 
@@ -193,6 +193,103 @@ class OpenRouterChat(Chat):
             print(f"[OpenRouterChat] Error: {e}")
             raise RuntimeError(f"OpenRouter request failed: {e}")
 
+    async def _make_api_call(self, system_prompt: str, user_message: str) -> str:
+        """Make a single non-streaming API call to OpenRouter."""
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ]
+        }
+
+        loop = asyncio.get_event_loop()
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=self._get_headers(),
+                    json=payload,
+                    timeout=300
+                )
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"]
+            else:
+                raise RuntimeError(f"Unexpected OpenRouter response format: {data}")
+        except Exception as e:
+            print(f"[OpenRouterChat] API Error: {e}")
+            raise
+
+    async def _research_explore(self, message: str, context: Optional[str]) -> str:
+        """Stage 1: Exploration call."""
+        system_prompt = self._build_system_prompt(context)
+        instruction = f"Perform an initial deep exploration for the topic: {message}. Gather all relevant facts, concepts, and technical details. Provide a comprehensive summary of your findings."
+        return await self._make_api_call(system_prompt, instruction)
+
+    async def _research_roadmap(self, exploration_results: str) -> List[Dict[str, str]]:
+        """Stage 2: Roadmap Creation call."""
+        system_prompt = self._load_soul_prompt()
+        instruction = (
+            "Based on the following research findings, create a detailed roadmap for a learning resource. "
+            "Divide it into sequential chapters. Each chapter should build on the previous ones. "
+            "Return the roadmap STRICTLY as a JSON list of objects, each with 'title' and 'description' keys. "
+            "Example: [{\"title\": \"Intro\", \"description\": \"...\"}]\n\n"
+            f"Findings:\n{exploration_results}"
+        )
+        response = await self._make_api_call(system_prompt, instruction)
+        
+        # Extract JSON from response
+        try:
+            # Look for JSON block
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group(0))
+            return json.loads(response)
+        except Exception as e:
+            print(f"[OpenRouterChat] Failed to parse roadmap JSON: {e}")
+            # Fallback: simple split if JSON fails
+            return [{"title": "Overview", "description": "General introduction based on findings."}]
+
+    async def _research_write_chapter(self, chapter: Dict[str, str], roadmap: List[Dict], previous_content: str, exploration_results: str) -> str:
+        """Stage 3a: Write Chapter call."""
+        system_prompt = self._load_soul_prompt()
+        instruction = (
+            f"Write the following chapter of the learning resource: {chapter['title']}.\n"
+            f"Description: {chapter['description']}\n\n"
+            f"Context: This is part of a larger roadmap: {json.dumps(roadmap)}\n\n"
+            f"Previous Content Summary: {previous_content[:500]}...\n\n"
+            f"Research Findings: {exploration_results[:1000]}...\n\n"
+            "Follow the SOUL.md rules: Assume beginner level, use detailed explanations, and reference code segments if applicable."
+        )
+        return await self._make_api_call(system_prompt, instruction)
+
+    async def _research_audit_chapter(self, content: str) -> str:
+        """Stage 3b: Audit & Elaborate call."""
+        system_prompt = self._load_soul_prompt()
+        instruction = (
+            "Review the following chapter content. Identify any technical terms, acronyms, or complex concepts that might not be fully explained for a beginner. "
+            "For each such term, provide a clear, detailed explanation. If the original text already explains it well, skip it. "
+            "Return ONLY the additional explanations or refined sections that should be integrated. "
+            "Make it feel like a natural part of the learning resource.\n\n"
+            f"Content:\n{content}"
+        )
+        return await self._make_api_call(system_prompt, instruction)
+
+    def _is_research_request(self, message: str, context: Optional[str]) -> bool:
+        """Detect if this is a research request that warrants the multi-stage loop."""
+        keywords = ['research', 'learn', 'study', 'deep dive', 'understand', 'explain', 'tutorial', 'guide']
+        message_lower = message.lower()
+        if any(kw in message_lower for kw in keywords):
+            return True
+        if context and "research" in context.lower():
+            return True
+        return False
+
     async def send_message_stream(
         self,
         message: str,
@@ -201,7 +298,77 @@ class OpenRouterChat(Chat):
     ) -> AsyncGenerator[str, None]:
         """
         Send a message to OpenRouter and stream the response.
+        If it's a research request, perform multi-stage agentic loop.
         """
+        if not self._is_research_request(message, context):
+            # Fallback to standard streaming
+            async for chunk in self._standard_stream(message, session_id, context):
+                yield chunk
+            return
+
+        # Start Research Loop
+        yield "### 🔍 Billa Research Protocol: Initiated\n\n"
+        
+        try:
+            # Stage 1: Explore
+            yield "1. **Exploring** the topic and gathering information... "
+            explore_results = await self._research_explore(message, context)
+            yield "✅ Done.\n"
+
+            # Stage 2: Roadmap
+            yield "2. **Creating a learning roadmap**... "
+            roadmap = await self._research_roadmap(explore_results)
+            yield f"✅ Created {len(roadmap)} chapters.\n\n"
+            
+            yield "#### Roadmap:\n"
+            for i, ch in enumerate(roadmap):
+                yield f"- Chapter {i+1}: {ch.get('title', 'Untitled')}\n"
+            yield "\n---\n\n"
+
+            # Stage 3: Chapters
+            final_markdown = f"# Research: {message}\n\n"
+            final_markdown += f"## Research Findings (Initial)\n{explore_results}\n\n"
+            
+            for i, chapter in enumerate(roadmap):
+                ch_title = chapter.get('title', f'Chapter {i+1}')
+                yield f"### 📝 Processing Chapter {i+1}: {ch_title}\n"
+                
+                # Step 3a: Write
+                yield "   - Writing content... "
+                content = await self._research_write_chapter(chapter, roadmap, final_markdown, explore_results)
+                yield "✅\n"
+                
+                # Step 3b: Audit
+                yield "   - Auditing terms & elaborating... "
+                audit_additions = await self._research_audit_chapter(content)
+                yield "✅\n\n"
+                
+                # Integrate and yield to user
+                chapter_content = f"## {ch_title}\n\n{content}\n\n### 💡 Supplemental Explanations\n{audit_additions}\n\n"
+                final_markdown += chapter_content
+                yield chapter_content
+                yield "\n---\n\n"
+
+            # Stage 4: Consolidation & Saving
+            yield "4. **Finalizing and saving resource**... "
+            filename = f"research_{session_id}_{int(asyncio.get_event_loop().time())}.md"
+            file_path = self.files_dir / filename
+            file_path.write_text(final_markdown)
+            yield f"✅ Saved as `{filename}`.\n\n"
+            
+            yield f"**Research Complete!** You can download the full resource from the 📁 Files button in the sidebar: `{filename}`"
+
+        except Exception as e:
+            yield f"\n\n❌ **Research Interrupted**: {str(e)}\n"
+            print(f"[OpenRouterChat] Research Loop Error: {e}")
+
+    async def _standard_stream(
+        self,
+        message: str,
+        session_id: str,
+        context: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
+        """Original streaming logic."""
         system_prompt = ""
         if session_id == "assistant":
             system_prompt = self._get_assistant_summary()
@@ -219,7 +386,6 @@ class OpenRouterChat(Chat):
 
         full_response = ""
         
-        # Use a separate thread for the streaming request since 'requests' is blocking
         def stream_request():
             return requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -253,7 +419,6 @@ class OpenRouterChat(Chat):
                         except json.JSONDecodeError:
                             print(f"[OpenRouterChat] Failed to decode JSON chunk: {content}")
 
-            # After streaming is complete, extract files
             if full_response:
                 self._extract_and_save_files(full_response)
 
