@@ -54,7 +54,7 @@ class TestResearchLoop(unittest.IsolatedAsyncioTestCase):
 
         # Verify chunks contain progress markers
         full_text = "".join(chunks)
-        self.assertIn("Billa Research Protocol: Initiated", full_text)
+        self.assertIn("ChaturAI Research Protocol: Initiated", full_text)
         self.assertIn("Gathering initial information", full_text)
         self.assertIn("Created 1 chapters", full_text)
         self.assertIn("Processing Chapter 1", full_text)

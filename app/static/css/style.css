@@ -886,3 +886,148 @@ body {
     color: var(--text-secondary);
     line-height: 1.6;
 }
+
+/* Full-page File Viewer Styles */
+.full-page-viewer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: var(--main-bg);
+    display: flex;
+    flex-direction: column;
+    z-index: 2000;
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.viewer-header {
+    background-color: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border-color);
+    padding: 16px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    backdrop-filter: blur(10px);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.back-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.back-btn:hover {
+    background-color: var(--hover-bg);
+    border-color: var(--text-secondary);
+}
+
+.viewer-header h2 {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.viewer-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 32px;
+    background-color: #0d1117; /* GitHub Dark dimmed background */
+}
+
+.file-content-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    background-color: #0d1117;
+    color: #e6edf3;
+    font-family: inherit;
+    line-height: 1.6;
+    overflow-y: auto;
+    height: 100%;
+    padding-right: 20px;
+}
+
+.code-viewer {
+    font-family: 'Courier New', 'Consolas', monospace;
+    font-size: 14px;
+}
+
+.markdown-viewer h1, 
+.markdown-viewer h2, 
+.markdown-viewer h3 {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+    margin-top: 24px;
+    margin-bottom: 16px;
+}
+
+/* Custom Scrollbar for Viewer */
+.file-content-container::-webkit-scrollbar {
+    width: 10px;
+}
+
+.file-content-container::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+
+.file-content-container::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 5px;
+}
+
+.file-content-container::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* Enhancing File Items */
+.file-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.view-btn {
+    padding: 8px 16px;
+    background-color: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.view-btn:hover {
+    background-color: var(--hover-bg);
+    border-color: var(--accent-color);
+}
+
+/* Glassmorphism for Modals */
+.modal {
+    backdrop-filter: blur(8px);
+}
+
+.modal-content {
+    background: rgba(33, 33, 33, 0.85);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}

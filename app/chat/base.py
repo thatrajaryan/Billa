@@ -1,49 +1,40 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, List, Dict
+
+
+class ModelProvider(ABC):
+    """Abstract base class for model providers (OpenRouter, Ollama, etc.)."""
+
+    @abstractmethod
+    async def generate(self, messages: List[Dict[str, str]]) -> str:
+        """Send messages and get a full response."""
+        pass
+
+    @abstractmethod
+    async def generate_stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+        """Send messages and stream the response."""
+        pass
+
+    @abstractmethod
+    async def generate_title(self, prompt: str) -> str:
+        """Generate a short title for a prompt."""
+        pass
 
 
 class Chat(ABC):
     """Abstract base class for chat implementations."""
 
     @abstractmethod
-    async def send_message(self, message: str, session_id: str, context: str | None = None) -> str:
-        """
-        Send a message and get a response.
-
-        Args:
-            message: The user's input message
-            session_id: The chat session identifier
-            context: Optional context from task.md file
-
-        Returns:
-            The assistant's response
-        """
+    async def send_message(self, message: str, session_id: str, context: Optional[str] = None) -> str:
+        """Send a message and get a response."""
         pass
 
     @abstractmethod
-    async def send_message_stream(self, message: str, session_id: str, context: str | None = None) -> AsyncGenerator[str, None]:
-        """
-        Send a message and stream the response.
-
-        Args:
-            message: The user's input message
-            session_id: The chat session identifier
-            context: Optional context from task.md file
-
-        Yields:
-            Chunks of the assistant's response
-        """
+    async def send_message_stream(self, message: str, session_id: str, context: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Send a message and stream the response."""
         pass
 
     @abstractmethod
     async def generate_title(self, prompt: str) -> str:
-        """
-        Generate a concise title (3-5 words) for a conversation based on the initial prompt.
-
-        Args:
-            prompt: The user's initial input message
-
-        Returns:
-            A short, descriptive title
-        """
+        """Generate a title for the conversation."""
         pass

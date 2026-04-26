@@ -275,4 +275,34 @@ def create_app(chat_impl: Chat | None = None):
 
         return send_file(file_path, as_attachment=True)
 
+    @app.route("/api/files/content/<path:filename>", methods=["GET"])
+    def get_file_content(filename):
+        """Get the content and metadata of a file."""
+        files_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / "files"
+        file_path = files_dir / filename
+
+        # Security check: prevent directory traversal
+        if not file_path.exists() or not file_path.is_file():
+            abort(404)
+
+        if not str(file_path.resolve()).startswith(str(files_dir.resolve())):
+            abort(403)
+
+        extension = file_path.suffix.lower()
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return jsonify({
+                "name": file_path.name,
+                "content": content,
+                "extension": extension,
+                "size": file_path.stat().st_size
+            })
+        except UnicodeDecodeError:
+            return jsonify({"error": "Binary files are not viewable yet, please download instead."}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     return app

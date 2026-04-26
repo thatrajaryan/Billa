@@ -1,94 +1,92 @@
-# AI Assistant
+# 🧠 ChaturAI
 
-A Flask-based chat assistant application with a ChatGPT-like interface.
+ChaturAI is a powerful, agentic AI research assistant designed to go beyond simple chat. It implements advanced multi-stage reasoning protocols to deep-dive into complex topics, generate structured learning resources, and automatically manage project files.
 
-## Architecture
+## ✨ Features
 
+### 🕵️ Agentic Research Protocol (ChaturAI)
+When you ask ChaturAI to "research" or "learn" a topic, it initiates the **ChaturAI Protocol**, a multi-stage reasoning loop:
+1.  **Deep Exploration**: Scours the topic for technical facts and core concepts.
+2.  **Roadmap Creation**: Generates a structured, sequential learning path.
+3.  **Iterative Writing**: Drafts comprehensive chapters with a focus on beginner-friendly explanations.
+4.  **Supplemental Auditing**: Self-reviews content to explain complex terms and acronyms.
+5.  **Auto-Consolidation**: Saves the entire research session to a downloadable Markdown file.
+
+### 📁 Smart File Management
+*   **Automatic Extraction**: ChaturAI detects code blocks in conversations and automatically saves them to the `files/` directory.
+*   **Immersive File Viewer**: A full-page, high-performance binary-aware viewer for:
+    *   **Code**: Syntax highlighting for Python, JS, CSS, and more.
+    *   **Markdown**: Beautifully rendered compiled documents.
+    *   **Text**: Clean, readable plain text.
+
+### 🛡️ Resilience & Persistence
+*   **Intelligent Checkpointing**: Automatically saves partial responses. If a stream is interrupted by a network failure, just type "continue" to pick up exactly where it left off.
+*   **User-Aware Interrupts**: Smart enough to clear state when you manually stop a session.
+
+### 🔌 Multi-Model Support
+*   **OpenRouter**: Access state-of-the-art models (Claude 3.5, GPT-4o, etc.).
+*   **Local Qwen**: Deep integration with Qwen CLI for private, local processing.
+*   **Ollama**: Seamless connection to your local Ollama instance.
+*   To add support for any LLM provider, simply implement the `ModelProvider` interface and add it to the `app/chat/` directory.
+
+---
+
+## 🚀 Setting Up
+
+### 1. Prerequisites
+*   Python 3.9+
+*   (Optional) [Ollama](https://ollama.com/) or [Qwen CLI](https://github.com/QwenLM/Qwen-7B) for local models.
+
+### 2. Installation
+Clone the repository and install dependencies:
+```bash
+git clone https://github.com/rajaryan18/ChaturAI.git
+cd ChaturAI
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
-├── app/
-│   ├── chat/
-│   │   ├── base.py          # Abstract Chat class
-│   │   └── example.py       # Example implementation
-│   ├── templates/
-│   │   └── index.html       # Main UI template
-│   ├── static/
-│   │   ├── css/style.css    # Styles
-│   │   └── js/app.js        # Frontend logic
-│   ├── __init__.py          # Flask app factory
-│   └── assistant.py         # Session-task mapping manager
-├── tasks/
-│   ├── default.md           # Default task context
-│   └── research-project.md  # Example task context
-├── assistant.md             # Session to task mapping
-├── run.py                   # Entry point
-└── requirements.txt         # Dependencies
-└── SOUL.md                  # Soul of the assistant
+
+### 3. Configuration
+Create a `.env` file in the project root:
+```env
+OPEN_ROUTER_API_KEY=your_api_key_here
+OPEN_ROUTER_MODEL=google/gemini-pro-1.5-exp  # Example model
 ```
 
-## How It Works
+### 4. Run the App
+```bash
+python3 run.py
+```
+The application will be live at `http://localhost:3000`.
 
-1. **Sessions & Context**: The `assistant.md` file maps chat sessions to their corresponding `task.md` files
-2. **Chat Flow**: When a user sends a message, the assistant:
-   - Looks up the session in `assistant.md`
-   - Loads the associated `task.md` context
-   - Passes the context to the Chat implementation
-   - Returns the response with streaming support
+---
 
-## Setup
+## 🏗️ Architecture
+
+ChaturAI uses a decoupled **Provider-Service** architecture:
+*   **`ChatService`**: Handles the ChaturAI protocol, file saving, and checkpointing.
+*   **`ModelProvider`**: Lightweight wrappers for different LLM backends.
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-python run.py
+├── app/
+│   ├── chat/
+│   │   ├── chat.py          # Central Business Logic (ChatService)
+│   │   ├── base.py          # Interfaces
+│   │   ├── openrouter.py    # Model Providers
+│   │   ├── qwen.py
+│   │   └── ollama.py
+│   ├── static/              # Frontend Assets
+│   └── templates/           # UI Layout
+├── files/                   # Auto-saved output files
+├── SOUL.md                  # Core personality and rules
+└── run.py                   # Entry point
 ```
 
-The app will be available at `http://localhost:5000`
+---
 
-## Creating a Custom Chat Implementation
-
-1. Create a new file in `app/chat/` (e.g., `my_chat.py`)
-2. Extend the `Chat` abstract class:
-
-```python
-from app.chat.base import Chat
-from typing import AsyncGenerator
-
-class MyChat(Chat):
-    async def send_message(self, message: str, session_id: str, context: str | None = None) -> str:
-        # Your implementation here
-        pass
-
-    async def send_message_stream(self, message: str, session_id: str, context: str | None = None) -> AsyncGenerator[str, None]:
-        # Your streaming implementation here
-        pass
-```
-
-3. Update `run.py` to use your implementation:
-
-```python
-from app.chat.my_chat import MyChat
-chat_impl = MyChat()
-app = create_app(chat_impl)
-```
-
-## Adding New Sessions
-
-Edit `assistant.md` to add new session mappings:
-
-```markdown
-## my-new-session
-- Task: tasks/my-new-session.md
-```
-
-Then create the corresponding `task.md` file in the `tasks/` directory.
-
-## Features
-
-- 💬 ChatGPT-like interface
-- 🔄 Streaming responses
-- 📁 Session-based context loading
-- 🎨 Dark theme
-- 📱 Responsive design
-- 🔌 Pluggable chat implementations
+## 🎨 Philosophy (SOUL)
+ChaturAI follows the rules defined in `SOUL.md`:
+*   Always assume the user is a beginner.
+*   Never leave technical terms unexplained.
+*   Prioritize depth and technical accuracy over brevity.

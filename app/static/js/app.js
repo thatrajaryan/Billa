@@ -30,15 +30,20 @@ const filesBtn = document.getElementById("files-btn");
 const filesModal = document.getElementById("files-modal");
 const closeFilesModal = document.getElementById("close-files-modal");
 const filesList = document.getElementById("files-list");
+const fullPageViewer = document.getElementById("full-page-viewer");
+const closeViewerBtn = document.getElementById("close-viewer-btn");
+const viewerTitle = document.getElementById("viewer-title");
+const viewerContent = document.getElementById("file-content");
+const viewerDownload = document.getElementById("viewer-download");
 
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
     loadSessions();
     loadTasks();
     setupEventListeners();
-    
-    // Set Billa Home as active by default
-    sessionTitle.textContent = "Billa Home";
+
+    // Set ChaturAI Home as active by default
+    sessionTitle.textContent = "ChaturAI Home";
 });
 
 function setupEventListeners() {
@@ -61,7 +66,7 @@ function setupEventListeners() {
         sessionTitle.textContent = "New Chat";
         chatMessages.innerHTML = "";
         showWelcomeMessage();
-        
+
         // Register the session
         fetch("/api/sessions", {
             method: "POST",
@@ -72,7 +77,7 @@ function setupEventListeners() {
                 title: "New Chat"
             }),
         }).then(() => loadSessions());
-        
+
         highlightActiveSession();
     });
 
@@ -87,16 +92,16 @@ function setupEventListeners() {
 
     // Delete modal event listeners
     closeDeleteModal.addEventListener("click", () => hideDeleteModal());
-    
+
     cancelDeleteBtn.addEventListener("click", () => hideDeleteModal());
-    
+
     confirmDeleteBtn.addEventListener("click", async () => {
         if (pendingDeleteSession) {
             await deleteSession(pendingDeleteSession);
             hideDeleteModal();
         }
     });
-    
+
     deleteModal.addEventListener("click", (e) => {
         if (e.target === deleteModal) {
             hideDeleteModal();
@@ -105,14 +110,17 @@ function setupEventListeners() {
 
     // Files modal event listeners
     filesBtn.addEventListener("click", () => showFilesModal());
-    
+
     closeFilesModal.addEventListener("click", () => hideFilesModal());
-    
+
     filesModal.addEventListener("click", (e) => {
         if (e.target === filesModal) {
             hideFilesModal();
         }
     });
+
+    // Viewer event listeners
+    closeViewerBtn.addEventListener("click", () => hideViewerModal());
 }
 
 function autoResizeTextarea() {
@@ -182,7 +190,7 @@ async function deleteSession(session) {
 
         // Reload sessions
         loadSessions();
-        
+
     } catch (error) {
         console.error("Failed to delete session:", error);
         alert(`Failed to delete conversation: ${error.message}`);
@@ -213,29 +221,95 @@ function renderFiles(files) {
     filesList.innerHTML = "";
 
     if (files.length === 0) {
-        filesList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 24px;">No files created yet. Ask Billa to create a file!</p>';
+        filesList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 24px;">No files created yet. Ask ChaturAI to create a file!</p>';
         return;
     }
 
     files.forEach(file => {
         const fileEl = document.createElement("div");
         fileEl.className = "file-item";
-        
-        const size = file.size < 1024 ? `${file.size} B` : 
-                     file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : 
-                     `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-        
+
+        const size = file.size < 1024 ? `${file.size} B` :
+            file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` :
+                `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+
         fileEl.innerHTML = `
             <div class="file-info">
                 <div class="file-name">${file.name}</div>
                 <div class="file-size">${size}</div>
             </div>
-            <a href="/api/files/${file.path}" download class="download-btn" title="Download">
-                ⬇ Download
-            </a>
+            <div class="file-actions">
+                <button class="view-btn" onclick="viewFile('${file.path}')">👁 View</button>
+                <a href="/api/files/${file.path}" download class="download-btn" title="Download">
+                    ⬇ Download
+                </a>
+            </div>
         `;
         filesList.appendChild(fileEl);
     });
+}
+
+function hideViewerModal() {
+    fullPageViewer.style.display = "none";
+    viewerContent.innerHTML = "";
+    document.body.style.overflow = "auto";
+}
+
+window.viewFile = async function (path) {
+    try {
+        viewerTitle.textContent = "Loading...";
+        fullPageViewer.style.display = "flex";
+        document.body.style.overflow = "hidden";
+
+        const response = await fetch(`/api/files/content/${path}`);
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || "Failed to load file content");
+        }
+
+        const file = await response.json();
+        viewerTitle.textContent = file.name;
+        viewerDownload.href = `/api/files/${path}`;
+
+        const ext = file.extension;
+
+        if (ext === '.md') {
+            // Render Markdown
+            viewerContent.className = "file-content-container markdown-viewer";
+            viewerContent.innerHTML = marked.parse(file.content);
+            // Highlight any code blocks within the markdown
+            viewerContent.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        } else if (['.py', '.js', '.css', '.html', '.json', '.sh', '.yaml', '.yml'].includes(ext)) {
+            // Render Code with Syntax Highlighting
+            viewerContent.className = "file-content-container code-viewer";
+            const codeEl = document.createElement('pre');
+            const innerCode = document.createElement('code');
+            innerCode.textContent = file.content;
+
+            // Map extensions to hljs languages if needed
+            let lang = ext.slice(1);
+            if (lang === 'py') lang = 'python';
+            innerCode.className = `language-${lang}`;
+
+            codeEl.appendChild(innerCode);
+            viewerContent.appendChild(codeEl);
+            hljs.highlightElement(innerCode);
+        } else {
+            // Plain text
+            viewerContent.className = "file-content-container text-viewer";
+            const pre = document.createElement('pre');
+            pre.textContent = file.content;
+            pre.style.whiteSpace = "pre-wrap";
+            viewerContent.appendChild(pre);
+        }
+
+    } catch (error) {
+        console.error("Failed to view file:", error);
+        viewerTitle.textContent = "Error";
+        viewerContent.innerHTML = `<p style="color: #ef4444;">${error.message}</p>`;
+    }
 }
 
 function renderExistingConversations() {
@@ -249,13 +323,13 @@ function renderExistingConversations() {
     sessions.forEach(session => {
         const item = document.createElement("div");
         item.className = "conversation-item";
-        
+
         // Use task filename as the title
         const taskName = session.task_file
             ? session.task_file.split('/').pop().replace('.md', '').replace(/-/g, ' ').replace(/_/g, ' ')
             : session.session_id;
         const displayName = taskName.charAt(0).toUpperCase() + taskName.slice(1);
-        
+
         item.innerHTML = `
             <div class="conversation-item-header">
                 <div class="conversation-item-title">${displayName}</div>
@@ -289,14 +363,14 @@ function renderTaskOptions() {
 
 async function continueConversation(sessionId) {
     currentSessionId = sessionId;
-    
+
     // Clear chat and show welcome before loading context
     chatMessages.innerHTML = "";
     showWelcomeMessage();
-    
+
     // Find the session object
     const session = sessions.find(s => s.session_id === sessionId);
-    
+
     // Load task context for this session
     try {
         const response = await fetch(`/api/sessions/${sessionId}/task`);
@@ -323,28 +397,28 @@ function extractTaskInfo(taskContent) {
     // Extract title
     const titleMatch = taskContent.match(/^#\s+(.+)$/m);
     const title = titleMatch ? titleMatch[1] : "Untitled";
-    
+
     // Extract summary
     const summaryMatch = taskContent.match(/## Summary\n([\s\S]*?)(?=\n##|$)/);
     const summary = summaryMatch ? summaryMatch[1].trim() : "";
-    
+
     return { title, summary };
 }
 
 function showTaskContext(markdown) {
     const headerEl = document.createElement("div");
     headerEl.className = "task-context-header";
-    
+
     // Extract title from first # heading
     const titleMatch = markdown.match(/^#\s+(.+)$/m);
     const title = titleMatch ? titleMatch[1] : "Task Context";
-    
+
     // Remove the title from body if it's there
     let bodyMarkdown = markdown;
     if (titleMatch) {
         bodyMarkdown = markdown.replace(titleMatch[0], "").trim();
     }
-    
+
     headerEl.innerHTML = `
         <div class="task-context-label">Current Task Context</div>
         <div class="task-context-title">${title}</div>
@@ -355,12 +429,12 @@ function showTaskContext(markdown) {
             <button class="task-context-toggle" id="task-context-toggle">Collapse Context</button>
         </div>
     `;
-    
+
     chatMessages.prepend(headerEl);
-    
+
     const toggleBtn = headerEl.querySelector("#task-context-toggle");
     const bodyEl = headerEl.querySelector("#task-context-body");
-    
+
     toggleBtn.addEventListener("click", () => {
         const isCollapsed = bodyEl.style.display === "none";
         bodyEl.style.display = isCollapsed ? "block" : "none";
@@ -399,7 +473,7 @@ async function createNewConversationWithTask(task) {
 
     // Update active state
     highlightActiveSession();
-    
+
     // Hide the modal
     hideConversationModal();
 }
@@ -424,19 +498,19 @@ function renderSessions(sessions) {
     sessions.forEach(session => {
         const sessionEl = document.createElement("div");
         sessionEl.className = "session-item";
-        
+
         // Use task name (from filename) as the title
-        const taskName = session.task_file 
+        const taskName = session.task_file
             ? session.task_file.split('/').pop().replace('.md', '').replace(/-/g, ' ').replace(/_/g, ' ')
             : session.session_id;
         const displayName = taskName.charAt(0).toUpperCase() + taskName.slice(1);
-        
+
         // Create text span for the session name
         const nameSpan = document.createElement("span");
         nameSpan.className = "session-name";
         nameSpan.textContent = displayName;
         sessionEl.appendChild(nameSpan);
-        
+
         // Create delete button
         const deleteBtn = document.createElement("button");
         deleteBtn.className = "session-delete-btn";
@@ -447,19 +521,19 @@ function renderSessions(sessions) {
             showDeleteConfirmation(session, displayName);
         });
         sessionEl.appendChild(deleteBtn);
-        
+
         // Click to switch to conversation
         sessionEl.addEventListener("click", () => {
             continueConversation(session.session_id);
         });
-        
+
         sessionsList.appendChild(sessionEl);
     });
 }
 
 function switchToAssistant() {
     currentSessionId = "assistant";
-    sessionTitle.textContent = "Billa Home";
+    sessionTitle.textContent = "ChaturAI Home";
     chatMessages.innerHTML = "";
     showWelcomeMessage();
     isFirstMessage = true;
@@ -496,62 +570,62 @@ function hideWelcomeMessage() {
 
 function addMessage(role, content) {
     hideWelcomeMessage();
-    
+
     const messageEl = document.createElement("div");
     messageEl.className = `message ${role}`;
-    
+
     const avatar = document.createElement("div");
     avatar.className = "message-avatar";
     avatar.textContent = role === "user" ? "U" : "A";
-    
+
     const contentEl = document.createElement("div");
     contentEl.className = "message-content";
     contentEl.innerHTML = formatMessage(content);
-    
+
     messageEl.appendChild(avatar);
     messageEl.appendChild(contentEl);
-    
+
     chatMessages.appendChild(messageEl);
     scrollToBottom();
-    
+
     return messageEl;
 }
 
 function addStreamingMessage(role) {
     hideWelcomeMessage();
-    
+
     const messageEl = document.createElement("div");
     messageEl.className = `message ${role}`;
-    
+
     const avatar = document.createElement("div");
     avatar.className = "message-avatar";
     avatar.textContent = role === "user" ? "U" : "A";
-    
+
     const contentEl = document.createElement("div");
     contentEl.className = "message-content";
-    
+
     messageEl.appendChild(avatar);
     messageEl.appendChild(contentEl);
     chatMessages.appendChild(messageEl);
-    
+
     return contentEl;
 }
 
 function addTypingIndicator() {
     hideWelcomeMessage();
-    
+
     const messageEl = document.createElement("div");
     messageEl.className = "message assistant";
     messageEl.id = "typing-indicator";
-    
+
     const avatar = document.createElement("div");
     avatar.className = "message-avatar";
     avatar.textContent = "A";
-    
+
     const contentEl = document.createElement("div");
     contentEl.className = "message-content";
     contentEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
-    
+
     messageEl.appendChild(avatar);
     messageEl.appendChild(contentEl);
     chatMessages.appendChild(messageEl);
@@ -571,49 +645,49 @@ function formatMessage(text) {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
-    
+
     // Handle fenced code blocks with optional language
-    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, function (match, lang, code) {
         const language = lang || 'code';
         return `<pre class="code-block"><div class="code-header">${language}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div><code>${code.trim()}</code></pre>`;
     });
-    
+
     // Handle inline code
     formatted = formatted.replace(/`([^`]+)`/g, "<code class='inline-code'>$1</code>");
-    
+
     // Handle headers
     formatted = formatted.replace(/^### (.+)$/gm, "<h3>$1</h3>");
     formatted = formatted.replace(/^## (.+)$/gm, "<h2>$1</h2>");
     formatted = formatted.replace(/^# (.+)$/gm, "<h1>$1</h1>");
-    
+
     // Handle bold
     formatted = formatted.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     formatted = formatted.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    
+
     // Handle italic
     formatted = formatted.replace(/\*(.+?)\*/g, "<em>$1</em>");
     formatted = formatted.replace(/_(.+?)_/g, "<em>$1</em>");
-    
+
     // Handle lists
     formatted = formatted.replace(/^\- (.+)$/gm, "<li>$1</li>");
     formatted = formatted.replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>");
-    
+
     // Wrap consecutive li elements in ul
-    formatted = formatted.replace(/(<li>.*<\/li>\n?)+/g, function(match) {
+    formatted = formatted.replace(/(<li>.*<\/li>\n?)+/g, function (match) {
         return "<ul>" + match + "</ul>";
     });
-    
+
     // Handle line breaks
     formatted = formatted.replace(/\n/g, "<br>");
-    
+
     // Clean up extra breaks after block elements
     formatted = formatted.replace(/(<\/pre>|<\/h[1-3]>|<\/ul>)<br>/g, "$1");
-    
+
     return formatted;
 }
 
 // Global function for copy button
-window.copyCode = function(btn) {
+window.copyCode = function (btn) {
     const codeBlock = btn.closest('.code-block').querySelector('code');
     const text = codeBlock.textContent;
     navigator.clipboard.writeText(text).then(() => {
@@ -632,7 +706,7 @@ async function handleSendMessage(e) {
     e.preventDefault();
 
     const message = messageInput.value.trim();
-    
+
     // If already waiting for response, the button acts as a stop button
     if (isWaitingForResponse) {
         if (currentAbortController) {
@@ -644,7 +718,7 @@ async function handleSendMessage(e) {
 
     if (!message) return;
 
-    // If we're in Billa Home, try to detect matching conversation
+    // If we're in ChaturAI Home, try to detect matching conversation
     if (currentSessionId === "assistant") {
         const match = await detectMatchingConversation(message);
         if (match) {
@@ -673,7 +747,7 @@ async function handleSendMessage(e) {
     try {
         // Use streaming response
         const response = await sendStreamingMessage(message);
-        
+
         // After first message in a non-assistant session, rename it
         if (isFirstMessage && currentSessionId !== "assistant") {
             try {
@@ -729,10 +803,10 @@ async function detectMatchingConversation(message) {
 async function routeToConversation(message, sessionId) {
     // Route to an existing conversation and send the message directly
     currentSessionId = sessionId;
-    
+
     // Find the session object
     const session = sessions.find(s => s.session_id === sessionId);
-    
+
     // Clear chat and show welcome before loading context
     chatMessages.innerHTML = "";
     showWelcomeMessage();
@@ -757,12 +831,12 @@ async function routeToConversation(message, sessionId) {
 
     // Update active state
     highlightActiveSession();
-    
+
     // Now send the message directly to this conversation
     addMessage("user", message);
     messageInput.value = "";
     messageInput.style.height = "auto";
-    
+
     isWaitingForResponse = true;
     updateSendButtonState("stop");
     addTypingIndicator();
@@ -813,12 +887,12 @@ async function createAndRouteToNewConversation(message) {
 
     // Update active state
     highlightActiveSession();
-    
+
     // Now send the message directly to this new conversation
     addMessage("user", message);
     messageInput.value = "";
     messageInput.style.height = "auto";
-    
+
     isWaitingForResponse = true;
     updateSendButtonState("stop");
     addTypingIndicator();
@@ -888,7 +962,7 @@ async function sendStreamingMessage(message) {
         }
     } catch (error) {
         if (error.name === 'AbortError') {
-             contentEl.innerHTML += `<br><span style="color: #f59e0b;">[Stream stopped by user]</span>`;
+            contentEl.innerHTML += `<br><span style="color: #f59e0b;">[Stream stopped by user]</span>`;
         } else if (!fullMessage) {
             throw error;
         } else {
@@ -897,7 +971,7 @@ async function sendStreamingMessage(message) {
     } finally {
         currentAbortController = null;
     }
-    
+
     return fullMessage;
 }
 
@@ -923,9 +997,9 @@ async function updateSendButtonState(state) {
 }
 async function updateTaskSummary(sessionId, userMessage, assistantResponse) {
     // Generate a summary from the conversation
-    const summaryText = assistantResponse.substring(0, 200) + 
-                        (assistantResponse.length > 200 ? "..." : "");
-    
+    const summaryText = assistantResponse.substring(0, 200) +
+        (assistantResponse.length > 200 ? "..." : "");
+
     try {
         await fetch(`/api/sessions/${sessionId}/update-summary`, {
             method: "POST",
