@@ -11,6 +11,7 @@ When you ask ChaturAI to "research" or "learn" a topic, it initiates the **Chatu
 3.  **Iterative Writing**: Drafts comprehensive chapters with a focus on beginner-friendly explanations.
 4.  **Supplemental Auditing**: Self-reviews content to explain complex terms and acronyms.
 5.  **Auto-Consolidation**: Saves the entire research session to a downloadable Markdown file.
+6.  **Auto-Naming**: Generates a title for the research session and automatically routes future sessions to it.
 
 ### 📁 Smart File Management
 *   **Automatic Extraction**: ChaturAI detects code blocks in conversations and automatically saves them to the `files/` directory.
@@ -20,7 +21,7 @@ When you ask ChaturAI to "research" or "learn" a topic, it initiates the **Chatu
     *   **Text**: Clean, readable plain text.
 
 ### 🛡️ Resilience & Persistence
-*   **Intelligent Checkpointing**: Automatically saves partial responses. If a stream is interrupted by a network failure, just type "continue" to pick up exactly where it left off.
+*   **Checkpoint Manager**: Automatically saves partial responses. If a stream is interrupted by a network failure, just type "continue" to pick up exactly where it left off. Handles clearance of unused checkpoints as a background task.
 *   **User-Aware Interrupts**: Smart enough to clear state when you manually stop a session.
 
 ### 🔌 Multi-Model Support
