@@ -240,12 +240,93 @@ function renderFiles(files) {
             </div>
             <div class="file-actions">
                 <button class="view-btn" onclick="viewFile('${file.path}')">👁 View</button>
+                <button class="rename-btn">✏️ Rename</button>
                 <a href="/api/files/${file.path}" download class="download-btn" title="Download">
                     ⬇ Download
                 </a>
             </div>
         `;
         filesList.appendChild(fileEl);
+
+        const renameBtn = fileEl.querySelector(".rename-btn");
+        renameBtn.addEventListener("click", () => {
+            fileEl.innerHTML = `
+                <div class="file-rename-container">
+                    <input type="text" class="rename-input" value="${file.name}" />
+                    <button class="save-rename-btn">Save</button>
+                    <button class="cancel-rename-btn">Cancel</button>
+                </div>
+            `;
+
+            const renameInput = fileEl.querySelector(".rename-input");
+            renameInput.focus();
+            
+            // Select filename prefix excluding extension
+            const extIdx = file.name.lastIndexOf('.');
+            if (extIdx > 0) {
+                renameInput.setSelectionRange(0, extIdx);
+            } else {
+                renameInput.select();
+            }
+
+            const cancelBtn = fileEl.querySelector(".cancel-rename-btn");
+            cancelBtn.addEventListener("click", () => {
+                loadFiles();
+            });
+
+            const saveBtn = fileEl.querySelector(".save-rename-btn");
+            const performSave = async () => {
+                const newName = renameInput.value.trim();
+                if (!newName) {
+                    alert("Filename cannot be empty.");
+                    return;
+                }
+                if (newName === file.name) {
+                    loadFiles();
+                    return;
+                }
+
+                saveBtn.disabled = true;
+                saveBtn.textContent = "Saving...";
+
+                try {
+                    const response = await fetch("/api/files/rename", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            old_name: file.name,
+                            new_name: newName
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        throw new Error(errData.error || "Failed to rename file");
+                    }
+
+                    await loadFiles();
+                } catch (err) {
+                    console.error("Error renaming file:", err);
+                    alert(`Failed to rename file: ${err.message}`);
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = "Save";
+                }
+            };
+
+            saveBtn.addEventListener("click", performSave);
+
+            renameInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    performSave();
+                } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    loadFiles();
+                }
+            });
+        });
     });
 }
 
@@ -276,11 +357,56 @@ window.viewFile = async function (path) {
         if (ext === '.md') {
             // Render Markdown
             viewerContent.className = "file-content-container markdown-viewer";
-            viewerContent.innerHTML = marked.parse(file.content);
+            
+            // Pre-process bracket math equations with backslashes to standard $$ format
+            let content = file.content.replace(/(?:\\\[|\[)\s*([^\]]*?\\[a-zA-Z_#]+[^\]]*?)\s*(?:\\\]|\])/g, (match, p1) => {
+                return '$$' + p1 + '$$';
+            });
+
+            // Extract math blocks
+            const mathBlocks = [];
+
+            // Extract block math $$...$$
+            content = content.replace(/\$\$([\s\S]+?)\$\$/g, (match, p1) => {
+                const placeholder = `MATHBLOCK${mathBlocks.length}`;
+                mathBlocks.push({ placeholder, content: '$$' + p1 + '$$' });
+                return placeholder;
+            });
+
+            // Extract inline math $...$
+            content = content.replace(/\$([^\$\n\s][^\$\n]*?[^\$\n\s]|\S)\$/g, (match, p1) => {
+                const placeholder = `MATHINLINE${mathBlocks.length}`;
+                mathBlocks.push({ placeholder, content: '$' + p1 + '$' });
+                return placeholder;
+            });
+
+            // Parse markdown
+            let html = marked.parse(content);
+
+            // Restore math blocks
+            mathBlocks.forEach(item => {
+                html = html.replace(item.placeholder, item.content);
+            });
+
+            viewerContent.innerHTML = html;
+
             // Highlight any code blocks within the markdown
             viewerContent.querySelectorAll('pre code').forEach((block) => {
                 hljs.highlightElement(block);
             });
+
+            // Render math equations using KaTeX
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(viewerContent, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false},
+                        {left: '\\(', right: '\\)', display: false},
+                        {left: '\\[', right: '\\]', display: true}
+                    ],
+                    throwOnError: false
+                });
+            }
         } else if (['.py', '.js', '.css', '.html', '.json', '.sh', '.yaml', '.yml'].includes(ext)) {
             // Render Code with Syntax Highlighting
             viewerContent.className = "file-content-container code-viewer";
@@ -435,6 +561,18 @@ function showTaskContext(markdown) {
     const toggleBtn = headerEl.querySelector("#task-context-toggle");
     const bodyEl = headerEl.querySelector("#task-context-body");
 
+    if (typeof renderMathInElement === 'function') {
+        renderMathInElement(bodyEl, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false
+        });
+    }
+
     toggleBtn.addEventListener("click", () => {
         const isCollapsed = bodyEl.style.display === "none";
         bodyEl.style.display = isCollapsed ? "block" : "none";
@@ -582,6 +720,18 @@ function addMessage(role, content) {
     contentEl.className = "message-content";
     contentEl.innerHTML = formatMessage(content);
 
+    if (typeof renderMathInElement === 'function') {
+        renderMathInElement(contentEl, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false
+        });
+    }
+
     messageEl.appendChild(avatar);
     messageEl.appendChild(contentEl);
 
@@ -640,8 +790,30 @@ function removeTypingIndicator() {
 }
 
 function formatMessage(text) {
+    // 1. Pre-process block math equations in brackets with backslashes to standard $$ format
+    let processed = text.replace(/(?:\\\[|\[)\s*([^\]]*?\\[a-zA-Z_#]+[^\]]*?)\s*(?:\\\]|\])/g, (match, p1) => {
+        return '$$' + p1 + '$$';
+    });
+
+    // 2. Extract math blocks to avoid formatting/escaping them
+    const mathBlocks = [];
+    
+    // Extract block math $$...$$
+    processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (match, p1) => {
+        const placeholder = `MATHBLOCK${mathBlocks.length}`;
+        mathBlocks.push({ placeholder, content: '$$' + p1 + '$$' });
+        return placeholder;
+    });
+
+    // Extract inline math $...$
+    processed = processed.replace(/\$([^\$\n\s][^\$\n]*?[^\$\n\s]|\S)\$/g, (match, p1) => {
+        const placeholder = `MATHINLINE${mathBlocks.length}`;
+        mathBlocks.push({ placeholder, content: '$' + p1 + '$' });
+        return placeholder;
+    });
+
     // Handle markdown code blocks
-    let formatted = text
+    let formatted = processed
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
@@ -682,6 +854,11 @@ function formatMessage(text) {
 
     // Clean up extra breaks after block elements
     formatted = formatted.replace(/(<\/pre>|<\/h[1-3]>|<\/ul>)<br>/g, "$1");
+
+    // 3. Restore the math blocks exactly as they were, untouched by escaping and newlines!
+    mathBlocks.forEach(item => {
+        formatted = formatted.replace(item.placeholder, item.content);
+    });
 
     return formatted;
 }
@@ -970,6 +1147,17 @@ async function sendStreamingMessage(message) {
         }
     } finally {
         currentAbortController = null;
+        if (typeof renderMathInElement === 'function' && contentEl) {
+            renderMathInElement(contentEl, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false},
+                    {left: '\\(', right: '\\)', display: false},
+                    {left: '\\[', right: '\\]', display: true}
+                ],
+                throwOnError: false
+            });
+        }
     }
 
     return fullMessage;

@@ -305,4 +305,43 @@ def create_app(chat_impl: Chat | None = None):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/api/files/rename", methods=["POST"])
+    def rename_file():
+        """Rename a file in the files directory."""
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON request body"}), 400
+        old_name = data.get("old_name", "")
+        new_name = data.get("new_name", "")
+
+        if not old_name or not new_name:
+            return jsonify({"error": "Both old_name and new_name are required"}), 400
+
+        files_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / "files"
+        
+        # Paths validation
+        old_path = (files_dir / old_name).resolve()
+        new_path = (files_dir / new_name).resolve()
+
+        # Security check: prevent directory traversal
+        files_dir_resolved = files_dir.resolve()
+        if not str(old_path).startswith(str(files_dir_resolved)) or not str(new_path).startswith(str(files_dir_resolved)):
+            return jsonify({"error": "Access denied"}), 403
+
+        if not old_path.exists() or not old_path.is_file():
+            return jsonify({"error": "Source file not found"}), 404
+
+        if new_path.exists():
+            return jsonify({"error": f"A file named '{new_name}' already exists"}), 400
+
+        try:
+            old_path.rename(new_path)
+            return jsonify({
+                "success": True,
+                "old_name": old_name,
+                "new_name": new_name
+            })
+        except Exception as e:
+            return jsonify({"error": f"Failed to rename file: {str(e)}"}), 500
+
     return app
